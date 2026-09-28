@@ -31,7 +31,8 @@ const unsigned long Ts_ms = 10;
 const float Ts = Ts_ms / 1000.0;
 const float run_time = 3.0;
 unsigned long start_time_ms, last_time_ms;
-float prev_pos_rad = 0;
+float prevPosRadR = 0;
+float prevPosRadL = 0;
 float integral = 0;
 
 //Encoder ISR that is used to detect and count direction of motor encoder when turned.
@@ -87,7 +88,7 @@ void drive(int pin, float desiredVel, float vel) {
     digitalWrite(RIGHT, LOW);
     digitalWrite(LEFT, HIGH);
   }
-  int pwmLevel = (int)(255.0 * fabs(voltage) / battery_V);
+  int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
   analogWrite(pin, pwmLevel);
 }
 
@@ -105,22 +106,30 @@ void setup() {
   pinMode(PWM_RIGHT, OUTPUT);
   pinMode(PWM_LEFT, OUTPUT);
   digitalWrite(ENABLE, HIGH);
-  pinMode(APIN, INPUT_PULLUP);
-  pinMode(BPIN, INPUT_PULLUP);
-  lastA = digitalRead(APIN);
-  lastB = digitalRead(BPIN);
+  pinMode(clkPinR, INPUT_PULLUP);
+  pinMode(dtPinR, INPUT_PULLUP);
+  pinMode(clkPinL, INPUT_PULLUP);
+  pinMode(dtPinL, INPUT_PULLUP);
+
+  // Set encoder starting states
+  lastAL = digitalRead(clkPinR);
+  lastBL = digitalRead(dtPinR);
+  lastAL = digitalRead(clkPinL);
+  lastBL = digitalRead(dtPinL);
   
   //set interupts
-  enableInterrupt(2, encoderIsrR, CHANGE);
-  enableInterrupt(3, encoderIsrR, CHANGE);
-  enableInterrupt(5, encoderIsrL, CHANGE);
-  enableInterrupt(6, encoderIsrL, CHANGE);
+  enableInterrupt(clkPinR, encoderIsrR, CHANGE);
+  enableInterrupt(dtPinR, encoderIsrR, CHANGE);
+  enableInterrupt(clkPinL, encoderIsrL, CHANGE);
+  enableInterrupt(dtPinL, encoderIsrL, CHANGE);
   
   //inialize start and last time to same value
   start_time_ms = last_time_ms = millis();
 }
 
-  
+const float desiredVelR = 0;
+const float desiredVelL = 0;
+
 //Main loop
 void loop() {
   //find the time in seconds since last loop
@@ -142,9 +151,9 @@ void loop() {
   //prints data
   Serial.print(t);
   Serial.print(", ");
-  Serial.print(voltage);
+  Serial.print(velR);
   Serial.print(", ");
-  Serial.println(vel);
+  Serial.println(velL);
   
   //waits set time to delay next loop cycle
   while (millis() < last_time_ms + Ts_ms) {}
