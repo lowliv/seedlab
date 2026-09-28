@@ -35,10 +35,10 @@ unsigned long start_time_ms, last_time_ms;
 float prevPosRadR = 0;
 float prevPosRadL = 0;
 
-float integralR = 0;
-float integralL = 0;
-float integralErrorR = 0;
-float integralErrorL = 0;
+float posIntegralR = 0;
+float posIntegralL = 0;
+float velIntegralR = 0;
+float velIntegralL = 0;
 
 //Encoder ISR that is used to detect and count direction of motor encoder when turned.
 void encoderIsrR() { // Encoder interrupt code right
@@ -78,46 +78,37 @@ void encoderIsrL() {
 
 //Function to drive the motor that is called in loop after voltage is set.
 //Handles -/+ voltages for forward and backwards turning.
-float velDrive(int pin, float targetVel, float vel, float integral) {
-  float error = targetVel - vel;
-  integral += error * Ts;
-  float voltage = KpVEL * error + KiVEL * integral;
+void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velIntegral) {
+  float velError = velTarget - vel;
+  velIntegral += velError * Ts;
+  float voltage = KpVEL * velError + KiVEL * velIntegral;
   
   //make sure voltage is within range and drives motor
   voltage = constrain(voltage, -batteryV, batteryV);
   
-  if (voltage >= 0) {
+  // set direction if driving right
+  if (voltage >= 0 && dirPin == RIGHT) {
     digitalWrite(RIGHT, HIGH);
-    digitalWrite(LEFT, LOW);
   } else {
     digitalWrite(RIGHT, LOW);
-    digitalWrite(LEFT, HIGH);
   }
-  int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
-  analogWrite(pin, pwmLevel);
-  return integral;
-}
-
-float posDrive(int pwmPin, float targetPos, float pos, float vel, float integralError) {
-  float posError = targetPos - pos;
-  integralError = integralError + posError*((float)Ts_ms /1000);
-  float targetVel = KpPOS * posError + KiPOS * integralError;
-  float error = targetVel - vel;
-  float voltage = KpPOS*error;
-
-  //make sure voltage is within range and drives motor
-  voltage = constrain(voltage, -batteryV, batteryV);
-  
-  if (voltage >= 0) {
-    digitalWrite(RIGHT, HIGH);
-    digitalWrite(LEFT, LOW);
+  // set direction if driving left
+  if (voltage >= 0 && dirPin == LEFT) {
+    digitalWrite(LEFT, HIGH);
   } else {
-    digitalWrite(RIGHT, LOW);
-    digitalWrite(LEFT, HIGH);
+    digitalWrite(LEFT, LOW);
   }
+
   int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
   analogWrite(pwmPin, pwmLevel);
-  return integralError;
+}
+
+void posDrive(int pwmPin, int dirPin, float posTarget, float pos, float vel, float &posIntegral, float &velIntegral) {
+  float posError = posTarget - pos;
+  posIntegral += posError * Ts_ms;
+  float velTarget = KpPOS * posError + KiPOS * posIntegral;
+
+  velDrive(pwmPin, dirPin, velTarget, vel, velIntegral);
 }
 
 //Setup
@@ -156,8 +147,6 @@ void setup() {
   start_time_ms = last_time_ms = millis();
 }
 
-float targetPosR = 2 * PI;
-float targetPosL = 2 * PI;
 //Main loop
 void loop() {
   //find the time in seconds since last loop
@@ -174,15 +163,15 @@ void loop() {
   float velL = (posRadL - prevPosRadL) / Ts;
   prevPosRadL = posRadL;
 
-  //float targetVelR = 1;
-  //float targetVelL = 1;
-  //integralR = velDrive(PWM_RIGHT, targetVelR, velR, integralR);
-  //integralL = velDrive(PWM_LEFT, targetVelL, velL, integralL);
+  //float velTargetR = 1;
+  //float velTargetL = 1;
+  //velDrive(PWM_RIGHT, RIGHT, velTargetR, velR, velIntegralR);
+  //velDrive(PWM_LEFT, LEFT, velTargetL, velL, velIntegralL);
 
-  float targetPosR = 2 * PI;
-  float targetPosL = 2 * PI;
-  integralErrorR = posDrive(PWM_RIGHT, targetPosR, posRadR, velR, integralErrorR);
-  integralErrorL = posDrive(PWM_LEFT, targetPosL, posRadL, velL, integralErrorL);
+  float posTargetR = 2 * PI;
+  float posTargetL = 2 * PI;
+  posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
+  posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
 
   //prints data
   Serial.print(t);
@@ -192,6 +181,9 @@ void loop() {
   Serial.println(posRadL);
   
   //waits set time to delay next loop cycle
+  if (millis() > last_time_ms + Ts_ms) {
+    Serial.println("WARNING: Ts too fast to handle");
+  }
   while (millis() < last_time_ms + Ts_ms) {}
   last_time_ms = millis();
 }
