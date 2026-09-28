@@ -21,10 +21,11 @@ volatile long posL = 0; // Left raw encoder counts
 volatile int lastAR, lastBR, lastAL, lastBL; // Previous encoder variables for Isr
 
 //Constants used for controls and calculations
-const float pi = 3.14159265;
 const float batteryV = 7.6;
-const float Kp = 0.5;
-const float Ki = 2;
+const float KpVEL = 0.5;
+const float KiVEL = 2;
+const float KpPOS = 0.5;
+const float KiPOS = 2;
 
 //Timing variables
 const unsigned long Ts_ms = 10;
@@ -33,7 +34,11 @@ const float run_time = 3.0;
 unsigned long start_time_ms, last_time_ms;
 float prevPosRadR = 0;
 float prevPosRadL = 0;
-float integral = 0;
+
+float integralR = 0;
+float integralL = 0;
+float integralErrorR = 0;
+float integralErrorL = 0;
 
 //Encoder ISR that is used to detect and count direction of motor encoder when turned.
 void encoderIsrR() { // Encoder interrupt code right
@@ -73,10 +78,10 @@ void encoderIsrL() {
 
 //Function to drive the motor that is called in loop after voltage is set.
 //Handles -/+ voltages for forward and backwards turning.
-void drive(int pin, float desiredVel, float vel) {
-  float error = desiredVel - vel;
+float velDrive(int pin, float targetVel, float vel, float integral) {
+  float error = targetVel - vel;
   integral += error * Ts;
-  float voltage = Kp * error + Ki * integral;
+  float voltage = KpVEL * error + KiVEL * integral;
   
   //make sure voltage is within range and drives motor
   voltage = constrain(voltage, -batteryV, batteryV);
@@ -90,6 +95,29 @@ void drive(int pin, float desiredVel, float vel) {
   }
   int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
   analogWrite(pin, pwmLevel);
+  return integral;
+}
+
+float posDrive(int pwmPin, float targetPos, float pos, float vel, float integralError) {
+  float posError = targetPos - pos;
+  integralError = integralError + posError*((float)Ts_ms /1000);
+  float targetVel = KpPOS * posError + KiPOS * integralError;
+  float error = targetVel - vel;
+  float voltage = KpPOS*error;
+
+  //make sure voltage is within range and drives motor
+  voltage = constrain(voltage, -batteryV, batteryV);
+  
+  if (voltage >= 0) {
+    digitalWrite(RIGHT, HIGH);
+    digitalWrite(LEFT, LOW);
+  } else {
+    digitalWrite(RIGHT, LOW);
+    digitalWrite(LEFT, HIGH);
+  }
+  int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
+  analogWrite(pwmPin, pwmLevel);
+  return integralError;
 }
 
 //Setup
@@ -106,14 +134,15 @@ void setup() {
   pinMode(PWM_RIGHT, OUTPUT);
   pinMode(PWM_LEFT, OUTPUT);
   digitalWrite(ENABLE, HIGH);
+
   pinMode(clkPinR, INPUT_PULLUP);
   pinMode(dtPinR, INPUT_PULLUP);
   pinMode(clkPinL, INPUT_PULLUP);
   pinMode(dtPinL, INPUT_PULLUP);
 
   // Set encoder starting states
-  lastAL = digitalRead(clkPinR);
-  lastBL = digitalRead(dtPinR);
+  lastAR = digitalRead(clkPinR);
+  lastBR = digitalRead(dtPinR);
   lastAL = digitalRead(clkPinL);
   lastBL = digitalRead(dtPinL);
   
@@ -127,33 +156,40 @@ void setup() {
   start_time_ms = last_time_ms = millis();
 }
 
-const float desiredVelR = 0;
-const float desiredVelL = 0;
-
+float targetPosR = 2 * PI;
+float targetPosL = 2 * PI;
 //Main loop
 void loop() {
   //find the time in seconds since last loop
   float t = (last_time_ms - start_time_ms) / 1000.0;
   
   //turns counts into rad values and estimates velocity.
-  float posRadR = -2 * pi * posR / 3200.0;
+  float posRadR = 2 * PI * posR / 3200.0;
   float velR = (posRadR - prevPosRadR) / Ts;
   prevPosRadR = posRadR;
 
+
   //turns counts into rad values and estimates velocity.
-  float posRadL = -2 * pi * posL / 3200.0;
+  float posRadL = 2 * PI * posL / 3200.0;
   float velL = (posRadL - prevPosRadL) / Ts;
   prevPosRadL = posRadL;
 
-  drive(PWM_RIGHT, desiredVelR, velR);
-  drive(PWM_LEFT, desiredVelL, velL);
-  
+  //float targetVelR = 1;
+  //float targetVelL = 1;
+  //integralR = velDrive(PWM_RIGHT, targetVelR, velR, integralR);
+  //integralL = velDrive(PWM_LEFT, targetVelL, velL, integralL);
+
+  float targetPosR = 2 * PI;
+  float targetPosL = 2 * PI;
+  integralErrorR = posDrive(PWM_RIGHT, targetPosR, posRadR, velR, integralErrorR);
+  integralErrorL = posDrive(PWM_LEFT, targetPosL, posRadL, velL, integralErrorL);
+
   //prints data
   Serial.print(t);
   Serial.print(", ");
-  Serial.print(velR);
+  Serial.print(posRadR);
   Serial.print(", ");
-  Serial.println(velL);
+  Serial.println(posRadL);
   
   //waits set time to delay next loop cycle
   while (millis() < last_time_ms + Ts_ms) {}
