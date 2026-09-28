@@ -1,21 +1,28 @@
 //Assignment 2 question 2a motor control
 //Set pin numbers
+
+#include <EnableInterrupt.h>
 const int ENABLE = 4;
 const int RIGHT = 8;
 const int LEFT = 7;
 const int PWM_RIGHT = 10;
-const int APIN = 2;
-const int BPIN = 3;
+const int PWM_LEFT = 9;
+
+const int clkPinR = 2; // Right motor encoder clk
+const int dtPinR = 3; // Right motor encoder dt
+
+const int clkPinL = 5; // Left motor encoder clk
+const int dtPinL = 6; // Left motor encoder dt
 
 //set ISR variables
-volatile long count = 0;
-volatile int lastA;
-volatile int lastB;
+volatile long posR = 0; // Right raw encoder counts
+volatile long posL = 0; // Left raw encoder counts
+
+volatile int lastAR, lastBR, lastAL, lastBL; // Previous encoder variables for Isr
 
 //Constants used for controls and calculations
 const float pi = 3.14159265;
-const float battery_V = 7.6;
-const float desired_vel = 12.0;
+const float batteryV = 7.6;
 const float Kp = 0.5;
 const float Ki = 2;
 
@@ -27,102 +34,119 @@ unsigned long start_time_ms, last_time_ms;
 float prev_pos_rad = 0;
 float integral = 0;
 
-//Encoder ISR that is used to detect and count direction of motor encoder when turned
-void encoderISR() {
-int thisA = digitalRead(APIN);
-int thisB = digitalRead(BPIN);
-if (lastA != thisA || lastB != thisB) {
-if ((lastA == 0 && lastB == 0) && (thisA == 0 && thisB == 1)) ++count;
-if ((lastA == 0 && lastB == 0) && (thisA == 1 && thisB == 0)) --count;
-if ((lastA == 0 && lastB == 1) && (thisA == 0 && thisB == 0)) --count;
-if ((lastA == 0 && lastB == 1) && (thisA == 1 && thisB == 1)) ++count;
-if ((lastA == 1 && lastB == 0) && (thisA == 0 && thisB == 0)) ++count;
-if ((lastA == 1 && lastB == 0) && (thisA == 1 && thisB == 1)) --count;
-if ((lastA == 1 && lastB == 1) && (thisA == 0 && thisB == 1)) --count;
-if ((lastA == 1 && lastB == 1) && (thisA == 1 && thisB == 0)) ++count;
-}
-lastA = thisA;
-lastB = thisB;
+//Encoder ISR that is used to detect and count direction of motor encoder when turned.
+void encoderIsrR() { // Encoder interrupt code right
+  int thisAR = digitalRead(clkPinR);
+  int thisBR = digitalRead(dtPinR);
+  if (lastAR != thisAR || lastBR != thisBR) {
+    if ((lastAR == 0 && lastBR == 0) && (thisAR == 0 && thisBR == 1)) ++posR;
+    if ((lastAR == 0 && lastBR == 0) && (thisAR == 1 && thisBR == 0)) --posR;
+    if ((lastAR == 0 && lastBR == 1) && (thisAR == 0 && thisBR == 0)) --posR;
+    if ((lastAR == 0 && lastBR == 1) && (thisAR == 1 && thisBR == 1)) ++posR;
+    if ((lastAR == 1 && lastBR == 0) && (thisAR == 0 && thisBR == 0)) ++posR;
+    if ((lastAR == 1 && lastBR == 0) && (thisAR == 1 && thisBR == 1)) --posR;
+    if ((lastAR == 1 && lastBR == 1) && (thisAR == 0 && thisBR == 1)) --posR;
+    if ((lastAR == 1 && lastBR == 1) && (thisAR == 1 && thisBR == 0)) ++posR;
+  }
+  lastAR = thisAR;
+  lastBR = thisBR;
 }
 
-//function to drive the motor that is called in loop after voltage is set.
-//Handles -/+ voltages for forward and backwards turning.
-void drive(float voltage) {
-if (voltage >= 0) {
-digitalWrite(RIGHT, HIGH);
-digitalWrite(LEFT, LOW);
-} else {
-digitalWrite(RIGHT, LOW);
-digitalWrite(LEFT, HIGH);
+//Encoder interrupt code left
+void encoderIsrL() {
+  int thisAL = digitalRead(clkPinL);
+  int thisBL = digitalRead(dtPinL);
+  if (lastAL != thisAL || lastBL != thisBL) {
+    if ((lastAL == 0 && lastBL == 0) && (thisAL == 0 && thisBL == 1)) ++posL;
+    if ((lastAL == 0 && lastBL == 0) && (thisAL == 1 && thisBL == 0)) --posL;
+    if ((lastAL == 0 && lastBL == 1) && (thisAL == 0 && thisBL == 0)) --posL;
+    if ((lastAL == 0 && lastBL == 1) && (thisAL == 1 && thisBL == 1)) ++posL;
+    if ((lastAL == 1 && lastBL == 0) && (thisAL == 0 && thisBL == 0)) ++posL;
+    if ((lastAL == 1 && lastBL == 0) && (thisAL == 1 && thisBL == 1)) --posL;
+    if ((lastAL == 1 && lastBL == 1) && (thisAL == 0 && thisBL == 1)) --posL;
+    if ((lastAL == 1 && lastBL == 1) && (thisAL == 1 && thisBL == 0)) ++posL;
+  }
+  lastAL = thisAL;
+  lastBL = thisBL;
 }
-int pwm = (int)(255.0 * fabs(voltage) / battery_V);
-analogWrite(PWM_RIGHT, pwm);
+
+//Function to drive the motor that is called in loop after voltage is set.
+//Handles -/+ voltages for forward and backwards turning.
+void drive(int pin, float desiredVel, float vel) {
+  float error = desiredVel - vel;
+  integral += error * Ts;
+  float voltage = Kp * error + Ki * integral;
+  
+  //make sure voltage is within range and drives motor
+  voltage = constrain(voltage, -batteryV, batteryV);
+  
+  if (voltage >= 0) {
+    digitalWrite(RIGHT, HIGH);
+    digitalWrite(LEFT, LOW);
+  } else {
+    digitalWrite(RIGHT, LOW);
+    digitalWrite(LEFT, HIGH);
+  }
+  int pwmLevel = (int)(255.0 * fabs(voltage) / battery_V);
+  analogWrite(pin, pwmLevel);
 }
 
 //Setup
 void setup() {
 
-//Delay so there is time to run commands to start reading printed info
-delay(3000);
-Serial.begin(115200);
-
-//enable pins
-pinMode(ENABLE, OUTPUT);
-pinMode(RIGHT, OUTPUT);
-pinMode(LEFT, OUTPUT);
-pinMode(PWM_RIGHT, OUTPUT);
-digitalWrite(ENABLE, HIGH);
-pinMode(APIN, INPUT_PULLUP);
-pinMode(BPIN, INPUT_PULLUP);
-lastA = digitalRead(APIN);
-lastB = digitalRead(BPIN);
-
-//set interupts
-attachInterrupt(digitalPinToInterrupt(APIN), encoderISR, CHANGE);
-attachInterrupt(digitalPinToInterrupt(BPIN), encoderISR, CHANGE);
-//inialize start and last time to same value
-start_time_ms = last_time_ms = millis();
+  //Delay so there is time to run commands to start reading printed info
+  delay(3000);
+  Serial.begin(115200);
+  
+  //enable pins
+  pinMode(ENABLE, OUTPUT);
+  pinMode(RIGHT, OUTPUT);
+  pinMode(LEFT, OUTPUT);
+  pinMode(PWM_RIGHT, OUTPUT);
+  pinMode(PWM_LEFT, OUTPUT);
+  digitalWrite(ENABLE, HIGH);
+  pinMode(APIN, INPUT_PULLUP);
+  pinMode(BPIN, INPUT_PULLUP);
+  lastA = digitalRead(APIN);
+  lastB = digitalRead(BPIN);
+  
+  //set interupts
+  enableInterrupt(2, encoderIsrR, CHANGE);
+  enableInterrupt(3, encoderIsrR, CHANGE);
+  enableInterrupt(5, encoderIsrL, CHANGE);
+  enableInterrupt(6, encoderIsrL, CHANGE);
+  
+  //inialize start and last time to same value
+  start_time_ms = last_time_ms = millis();
 }
 
+  
 //Main loop
 void loop() {
+  //find the time in seconds since last loop
+  float t = (last_time_ms - start_time_ms) / 1000.0;
+  
+  //turns counts into rad values and estimates velocity.
+  float posRadR = -2 * pi * posR / 3200.0;
+  float velR = (posRadR - prevPosRadR) / Ts;
+  prevPosRadR = posRadR;
 
-//find the time in seconds since last loop
-float t = (last_time_ms - start_time_ms) / 1000.0;
+  //turns counts into rad values and estimates velocity.
+  float posRadL = -2 * pi * posL / 3200.0;
+  float velL = (posRadL - prevPosRadL) / Ts;
+  prevPosRadL = posRadL;
 
-//stops motor and program when run time is up
-if (t > run_time) {
-analogWrite(PWM_RIGHT, 0);
-return;
-}
-
-//disables interupts so count can be read and not be changed by isr midread
-noInterrupts();
-long c = count;
-interrupts();
-
-//turns counts into rad values and estimates velocity.
-float pos_rad = -2 * pi * c / 3200.0;
-float vel = (pos_rad - prev_pos_rad) / Ts;
-prev_pos_rad = pos_rad;
-
-//Finds error from expected and finds next voltage
-float error = desired_vel - vel;
-integral += error * Ts;
-float voltage = Kp * error + Ki * integral;
-
-//make sure voltage is within range and drives motor
-voltage = constrain(voltage, -battery_V, battery_V);
-drive(voltage);
-
-//prints data
-Serial.print(t);
-Serial.print(", ");
-Serial.print(voltage);
-Serial.print(", ");
-Serial.println(vel);
-
-//waits set time to delay next loop cycle
-while (millis() < last_time_ms + Ts_ms) {}
-last_time_ms = millis();
+  drive(PWM_RIGHT, desiredVelR, velR);
+  drive(PWM_LEFT, desiredVelL, velL);
+  
+  //prints data
+  Serial.print(t);
+  Serial.print(", ");
+  Serial.print(voltage);
+  Serial.print(", ");
+  Serial.println(vel);
+  
+  //waits set time to delay next loop cycle
+  while (millis() < last_time_ms + Ts_ms) {}
+  last_time_ms = millis();
 }
