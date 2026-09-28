@@ -1,0 +1,14 @@
+float integral_error[2] = {0};
+5
+void loop()
+...
+...
+code to define variables and get position and velocity. You will change some of your existing variables to two
+element arrays, and add the other necessary variables.
+for(i=0;i<2;i++) {
+pos_error[i] = desired_pos[i] - actual_pos[i];
+integral_error[i] = integral_error[i] + pos_error[i]*((float)desired_Ts_ms /1000);
+desired_speed[i] = Kp_pos * pos_error[i] + Ki_pos * integral_error[i];
+error[i] = desired_speed[i] - actual_speed[i];
+Voltage[i] = Kp*error[i];
+}
