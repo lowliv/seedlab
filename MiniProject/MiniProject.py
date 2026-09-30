@@ -4,6 +4,7 @@ import time
  
 import cv2
 from cv2 import aruco
+from smbus2 import SMBus
  
 CAMERA_INDEX = 0
 FRAME_W, FRAME_H = 320, 240
@@ -20,6 +21,8 @@ QUADRANT_GOALS = {
  
 FONT = cv2.FONT_HERSHEY_SIMPLEX
  
+i2c = SMBus(1)
+ARDUINO_ADDR = 8
  
 def open_camera():
     cam = cv2.VideoCapture(CAMERA_INDEX)
@@ -183,6 +186,8 @@ def main():
                     goal = new_goal
                     lcd.show_goal(*goal)
                     print(f"{quadrant}, pos: {goal[0]} {goal[1]}") # instead of printing send to arduino for motor control
+                    try:
+                        i2c.write_i2c_block_data(ARDUINO_ADDR, goal{0}, goal{1})
  
             status = f"{quadrant}: {goal[0]} {goal[1]}" if center is not None else f"NONE: {goal[0]} {goal[1]}"
             draw_overlay(frame, quadrant, center, corners, ids, status)
