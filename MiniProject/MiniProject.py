@@ -21,7 +21,7 @@ QUADRANT_GOALS = {
  
 FONT = cv2.FONT_HERSHEY_SIMPLEX
  
-i2c = SMBus(1)
+i2cAr = SMBus(1)
 ARDUINO_ADDR = 8
  
 def open_camera():
@@ -187,7 +187,9 @@ def main():
                     lcd.show_goal(*goal)
                     print(f"{quadrant}, pos: {goal[0]} {goal[1]}") # instead of printing send to arduino for motor control
                     try:
-                        i2c.write_i2c_block_data(ARDUINO_ADDR, goal{0}, goal{1})
+                        i2cAr.write_i2c_block_data(ARDUINO_ADDR, 0, [for each in goal])
+                    except:
+                        print("can't find arduino")
  
             status = f"{quadrant}: {goal[0]} {goal[1]}" if center is not None else f"NONE: {goal[0]} {goal[1]}"
             draw_overlay(frame, quadrant, center, corners, ids, status)
