@@ -187,7 +187,7 @@ def main():
                     lcd.show_goal(*goal)
                     print(f"{quadrant}, pos: {goal[0]} {goal[1]}") # instead of printing send to arduino for motor control
                     try:
-                        i2cAr.write_i2c_block_data(ARDUINO_ADDR, 0, [for each in goal])
+                        i2cAr.write_i2c_block_data(ARDUINO_ADDR, 0, [each for each in goal])
                     except:
                         print("can't find arduino")
  
