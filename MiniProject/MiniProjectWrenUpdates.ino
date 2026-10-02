@@ -6,13 +6,9 @@
 #define MY_ADDR 8
 
 
-volatile uint8_t cmdA = 0;
-volatile uint8_t cmdB = 0;
+volatile uint8_t cmdA = 0;   // Left wheel command  (0 = 0 deg, 1 = 180 deg)
+volatile uint8_t cmdB = 0;   // Right wheel command (0 = 0 deg, 1 = 180 deg)
 volatile bool newCmd = true;
-volatile int c = 0;
-
-const unsigned long timing = 325;
-bool LorR = true;
 
 const int ENABLE = 4;
 const int RIGHT = 8;
@@ -37,12 +33,12 @@ const float batteryV = 7.6;
 const float KpVEL = 0.5;
 const float KiVEL = 2;
 const float KpPOS = 0.5;
-const float KiPOS = 2;
+const float KiPOS = 0;   // position integral removed: velocity-loop integrator already
+                         // drives position error to zero, and two integrators oscillate
 
 //Timing variables
 const unsigned long Ts_ms = 10;
 const float Ts = Ts_ms / 1000.0;
-const float run_time = 3.0;
 unsigned long start_time_ms, last_time_ms;
 float prevPosRadR = 0;
 float prevPosRadL = 0;
@@ -93,23 +89,19 @@ void encoderIsrL() {
 void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velIntegral) {
   float velError = velTarget - vel;
   velIntegral += velError * Ts;
+
+  // anti-windup: don't let the integral term alone exceed the available voltage
+  float iLimit = batteryV / KiVEL;
+  velIntegral = constrain(velIntegral, -iLimit, iLimit);
+
   float voltage = KpVEL * velError + KiVEL * velIntegral;
   
   //make sure voltage is within range and drives motor
   voltage = constrain(voltage, -batteryV, batteryV);
   
-  // set direction if driving right
-  if (voltage >= 0 && dirPin == RIGHT) {
-    digitalWrite(RIGHT, HIGH);
-  } else {
-    digitalWrite(RIGHT, LOW);
-  }
-  // set direction if driving left
-  if (voltage >= 0 && dirPin == LEFT) {
-    digitalWrite(LEFT, HIGH);
-  } else {
-    digitalWrite(LEFT, LOW);
-  }
+  // set direction ONLY for the motor being driven
+  // (polarity is reversed so the motor pushes against the encoder error)
+  digitalWrite(dirPin, voltage >= 0 ? LOW : HIGH);
 
   int pwmLevel = (int)(255.0 * fabs(voltage) / batteryV);
   analogWrite(pwmPin, pwmLevel);
@@ -123,15 +115,22 @@ void posDrive(int pwmPin, int dirPin, float posTarget, float pos, float vel, flo
   velDrive(pwmPin, dirPin, velTarget, vel, velIntegral);
 }
 
+// I2C receive handler. Runs in interrupt context, so no Serial printing here.
+// Reads every byte that arrived and uses the LAST TWO as the commands, so it
+// works whether or not the Pi sends a leading register/offset byte.
 void receive(int numBytes) {
-  if (numBytes >= 2) {
-    cmdA = Wire.read();
-    cmdB = Wire.read();
+  uint8_t prev = 0, last = 0;
+  int count = 0;
+  while (Wire.available()) {
+    prev = last;
+    last = Wire.read();
+    count++;
+  }
+  if (count >= 2) {
+    cmdA = prev;
+    cmdB = last;
     newCmd = true;
   }
-  Serial.print(cmdA);
-  Serial.print(", ");
-  Serial.println(cmdB);
 }
 
 //Setup
@@ -174,61 +173,54 @@ void setup() {
 
 //Main loop
 void loop() {
-  if (c != 2){
+  //find the time in seconds since start
+  float t = (last_time_ms - start_time_ms) / 1000.0;
 
-    unsigned long start = millis();
-    
-    while (millis() - start < timing) {
-      //find the time in seconds since last loop
-      float t = (last_time_ms - start_time_ms) / 1000.0;
-      
-      //turns counts into rad values and estimates velocity.
-      float posRadR = 2 * PI * posR / 3200.0;
-      float velR = (posRadR - prevPosRadR) / Ts;
-      prevPosRadR = posRadR;
+  // copy the encoder counts atomically (they are changed inside ISRs)
+  noInterrupts();
+  long cntR = posR;
+  long cntL = posL;
+  interrupts();
 
+  //turns counts into rad values and estimates velocity.
+  float posRadR = 2 * PI * cntR / 3200.0;
+  float velR = (posRadR - prevPosRadR) / Ts;
+  prevPosRadR = posRadR;
 
-      //turns counts into rad values and estimates velocity.
-      float posRadL = 2 * PI * posL / 3200.0;
-      float velL = (posRadL - prevPosRadL) / Ts;
-      prevPosRadL = posRadL;
+  float posRadL = 2 * PI * cntL / 3200.0;
+  float velL = (posRadL - prevPosRadL) / Ts;
+  prevPosRadL = posRadL;
 
-      // float velTargetR = 1;
-      // float velTargetL = 1;
-      // velDrive(PWM_RIGHT, RIGHT, velTargetR, velR, velIntegralR);
-      // velDrive(PWM_LEFT, LEFT, velTargetL, velL, velIntegralL);
+  // Set-points from the I2C commands: 0 -> 0 rad, 1 -> PI rad (180 deg)
+  // cmdA = left wheel, cmdB = right wheel
+  float posTargetL = (cmdA ? PI : 0.0);
+  float posTargetR = (cmdB ? PI : 0.0);
 
-      float posTargetR = 2 * PI;
-      float posTargetL = 2 * PI;
+  // Both wheels are controlled every cycle so they hold position and
+  // reject disturbances (integral action keeps pulling them back).
+  posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
+  posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
 
-      if (LorR) {
-        posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
-        analogWrite(PWM_LEFT, 0);
-      } else {
-        posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
-        analogWrite(PWM_RIGHT, 0);
-      }
-
-
-
-      //prints data
-      Serial.print(t);
-      Serial.print(", ");
-      Serial.print(posRadR);
-      Serial.print(", ");
-      Serial.println(posRadL);
-      
-      //waits set time to delay next loop cycle
-      if (millis() > last_time_ms + Ts_ms) {
-        Serial.println("WARNING: Ts too fast to handle");
-      }
-      while (millis() < last_time_ms + Ts_ms) {}
-      last_time_ms = millis();
-    }
-    LorR = !LorR;
-    analogWrite(PWM_LEFT, 0);
-    analogWrite(PWM_RIGHT, 0);
-    c += 1;
+  // print the received command once whenever a new one arrives
+  if (newCmd) {
+    newCmd = false;
+    Serial.print("CMD: ");
+    Serial.print(cmdA);
+    Serial.print(", ");
+    Serial.println(cmdB);
   }
+
+  //prints data
+  Serial.print(t);
+  Serial.print(", ");
+  Serial.print(posRadR);
+  Serial.print(", ");
+  Serial.println(posRadL);
   
+  //waits set time to delay next loop cycle
+  if (millis() > last_time_ms + Ts_ms) {
+    Serial.println("WARNING: Ts too fast to handle");
+  }
+  while (millis() < last_time_ms + Ts_ms) {}
+  last_time_ms = millis();
 }
