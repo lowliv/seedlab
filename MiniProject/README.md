@@ -14,8 +14,8 @@ The following is the general description for each module used in the system.
 
 ### Python
 
-Uses a function to open the camera and classes for finding the ArUco marker, tracking its quadrant location, and updating the LCD display accordingly. Also, the queue and threading python modules are used to speed up processing and allow multiple functions to be run at the same time.
+Uses a function to open the camera and classes for finding the ArUco marker, tracking its quadrant location, and updating the LCD display accordingly. Also, the queue and threading python modules are used to speed up processing and allow multiple functions to be run at the same time. In addition, the python code sends the intended position as a list of two numbers.
 
 ### Arduino
 
-Uses a separate encoder ISR interrupt for each wheel to allow independent movement. Also, two functions for drive are written: one for velocity, the other for position. Both functions factor in the error and integral defined based on the calculations of the current and intended positions.
+Uses a separate encoder ISR interrupt for each wheel to allow independent movement. Also, two functions for drive are written: one for velocity, the other for position. Both functions factor in the error and integral (PI controller) defined based on the calculations of the current and intended positions. In addition, the Arduino reads the wire signals sent from the Raspberry Pi and saves the last two numbers as the intended position.
