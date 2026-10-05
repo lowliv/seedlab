@@ -1,11 +1,20 @@
+/* 
+Names: Cameron MacMillan, Wren Heinly, Vlad Kazakin, Ben Rozic
+Group: 12
+
+Code to recieve 2 bits of input from the Pi and using position PI controllers and to 
+rotate the wheels by 180 or 0 degrees depending on the value of these bits. This builds 
+on the velocity controller code from assignment 2 and the encoder code from assignment 1.
+This code requires the EnableInterrupt library for addition interrupt pins and the wire 
+library for communicating with the Pi.
+*/
+
 #include <EnableInterrupt.h>
 #include <Wire.h>
 #define MY_ADDR 8
 
-
-
-volatile uint8_t cmdA = 0;
-volatile uint8_t cmdB = 0;
+volatile uint8_t cmdA = 0; // From PI
+volatile uint8_t cmdB = 0; // From Pi
 volatile bool newCmd = true;
 
 const int ENABLE = 4;
@@ -100,7 +109,8 @@ void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velInte
   } else if (dirPin == RIGHT) {
     digitalWrite(RIGHT, LOW);
   }
-  // Set direction if driving left
+  // Set direction if driving left opposite because the left
+  // is mirrored
   if (voltage >= 0 && dirPin == LEFT) {
     digitalWrite(LEFT, LOW);
   } else if (dirPin == LEFT) {
@@ -165,13 +175,13 @@ void setup() {
   lastAL = digitalRead(clkPinL);
   lastBL = digitalRead(dtPinL);
   
-  //set interupts
+  // Set interupts
   enableInterrupt(clkPinR, encoderIsrR, CHANGE);
   enableInterrupt(dtPinR, encoderIsrR, CHANGE);
   enableInterrupt(clkPinL, encoderIsrL, CHANGE);
   enableInterrupt(dtPinL, encoderIsrL, CHANGE);
   
-  //inialize start and last time to same value
+  // Inialize start and last time to same value
   start_time_ms = last_time_ms = millis();
 }
 
@@ -197,6 +207,7 @@ void loop() {
   float posTargetR;
   float posTargetL;
   
+  // Sets the target rotations in radians based on the bits recieved
   if (cmdA) {
     posTargetR = PI;
   } else {
@@ -208,10 +219,12 @@ void loop() {
     posTargetL = 0;
   }
 
-
+  // Call the position controllers for each wheel
   posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
   posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
   
+  // Print statements for debugging
+  /*
   if (newCmd) {
     newCmd = false;
     Serial.print("CMD: ");
@@ -219,8 +232,9 @@ void loop() {
     Serial.print(", ");
     Serial.println(cmdB);
   }
+  */
 
-  // Prints data
+  // Prints statements for debugging
   /*
   Serial.print(t);
   Serial.print(", ");
@@ -229,7 +243,7 @@ void loop() {
   Serial.println(posRadL);
   */
 
-  //waits set time to delay next loop cycle
+  // Waits set time to delay next loop cycle
   if (millis() > last_time_ms + Ts_ms) {
     Serial.println("WARNING: Ts too fast to handle");
   }
