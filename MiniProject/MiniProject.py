@@ -1,3 +1,13 @@
+"""
+This is the RaspberryPi component of MiniProject.
+The purpose is to explore communication between the pi and arduino to form one coherant process.
+
+To use, ensure all the io is connected (lcd is connected to the proper pins and a camera is plugged into a usb-a port.
+Make sure the pi AND arduino are running the proper programs, and that they are connectd through the required pins.
+Run the program, and position an aruco marker in front of the camera and observe the results.
+Close the program by pressing q in the image window or ^C.
+"""
+
 import queue
 import threading
 import time
@@ -11,7 +21,8 @@ FRAME_W, FRAME_H = 320, 240
 PREVIEW_SIZE = (640, 480)
 HYSTERESIS_PX = 6
 LCD_COLS, LCD_ROWS = 16, 2
- 
+
+# defines goals for detected quadrant
 QUADRANT_GOALS = {
     "NE": (0, 0),
     "NW": (0, 1),
@@ -23,7 +34,8 @@ FONT = cv2.FONT_HERSHEY_SIMPLEX
  
 i2cAr = SMBus(1)
 ARDUINO_ADDR = 8
- 
+
+# function that opens the camera and returns an error if it cant
 def open_camera():
     cam = cv2.VideoCapture(CAMERA_INDEX)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
@@ -33,13 +45,14 @@ def open_camera():
         raise RuntimeError("camera did not open")
     return cam
  
- 
+# class and functions for detecting the aruco markers 
 class MarkerFinder:
     def __init__(self):
         params = aruco.DetectorParameters()
-        params.minMarkerPerimeterRate = 0.01
+        params.minMarkerPerimeterRate = 0.01 # change value to tweak performance and detection sizes
         self.detector = aruco.ArucoDetector(aruco.getPredefinedDictionary(aruco.DICT_6X6_50), params)
- 
+
+    # returns the relevant coordinates of detected markers
     def find(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = self.detector.detectMarkers(gray)
@@ -54,9 +67,8 @@ class MarkerFinder:
         cx, cy = best.reshape(4, 2).mean(axis=0)
         return (float(cx), float(cy)), corners, ids
  
- 
+# class for tracking current quadrant 
 class QuadrantTracker:
-    # tracks N/S and E/W separately with hysteresis so the marker sitting on a centre line doesn't flicker the quadrant back and forth
     def __init__(self, hysteresis=HYSTERESIS_PX):
         self.hyst = hysteresis
         self._east = None
@@ -80,9 +92,8 @@ class QuadrantTracker:
  
         return ("N" if self._north else "S") + ("E" if self._east else "W")
  
- 
+ # class for the lcd to write on its own thread (so the rest of the program doesnt have to wait)
 class LcdDisplay:
-    # writes on its own thread
     HEADER = "goal:"
  
     def __init__(self):
@@ -99,14 +110,17 @@ class LcdDisplay:
         self._queue = queue.Queue()
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
- 
+
+    # puts a message to display in the queue
     def show_goal(self, left, right):
         self._queue.put(f"{left} {right}")
- 
+
+    # turns off the lcd on program termination
     def close(self):
         self._queue.put(None)
         self._thread.join(timeout=2)
- 
+
+    # process function for lcd behavior
     def _worker(self):
         shown = None
         while True:
@@ -132,11 +146,12 @@ class LcdDisplay:
         except OSError:
             pass
  
- 
+# renders overlay data onto the rendered window 
 def draw_overlay(img, quadrant, center, corners, ids, status):
     h, w = img.shape[:2]
     cx, cy = w // 2, h // 2
- 
+
+    # tints current region and prints current region in display
     if quadrant is not None:
         x0 = cx if quadrant[1] == "E" else 0
         y0 = 0 if quadrant[0] == "N" else cy
@@ -144,7 +159,8 @@ def draw_overlay(img, quadrant, center, corners, ids, status):
         tint = region.copy()
         tint[:] = (0, 165, 255)
         img[y0:y0 + cy, x0:x0 + cx] = cv2.addWeighted(tint, 0.25, region, 0.75, 0)
- 
+
+    # draws more information over the live display
     cv2.line(img, (cx, 0), (cx, h), (255, 255, 255), 1)
     cv2.line(img, (0, cy), (w, cy), (255, 255, 255), 1)
     for label, pos in (("NW", (4, 14)), ("NE", (w - 26, 14)), ("SW", (4, h - 6)), ("SE", (w - 26, h - 6))):
@@ -160,23 +176,24 @@ def draw_overlay(img, quadrant, center, corners, ids, status):
     (tw, _), _ = cv2.getTextSize(status, FONT, 0.45, 1)
     cv2.putText(img, status, (max((w - tw) // 2, 0), h - 6), FONT, 0.45, (0, 255, 255), 1)
  
- 
 def main():
     camera = open_camera()
     finder = MarkerFinder()
     tracker = QuadrantTracker()
     lcd = LcdDisplay()
- 
+
+    # sets initial state
     goal = (0, 0)
     quadrant = None
     lcd.show_goal(*goal)
  
     try:
-        while True:
+        while True: # gets frames from camera but doesnt abort if it skips or something
             ok, frame = camera.read()
             if not ok:
                 continue
- 
+    
+           # gets the coordinate of the aruco center and gets current quadrant from that 
             center, corners, ids = finder.find(frame)
             if center is not None:
                 h, w = frame.shape[:2]
@@ -185,12 +202,15 @@ def main():
                 if new_goal != goal:
                     goal = new_goal
                     lcd.show_goal(*goal)
-                    print(f"{quadrant}, pos: {goal[0]} {goal[1]}") # instead of printing send to arduino for motor control
+                    print(f"{quadrant}, pos: {goal[0]} {goal[1]}") # prints to terminal for debugging
                     try:
+                        # sends goal information to the arduino
                         i2cAr.write_i2c_block_data(ARDUINO_ADDR, 0, [each for each in goal])
                     except:
+                        # if the arduino cant be found the program still runs
                         print("can't find arduino")
- 
+
+            # actually draws a frame to the display
             status = f"{quadrant}: {goal[0]} {goal[1]}" if center is not None else f"NONE: {goal[0]} {goal[1]}"
             draw_overlay(frame, quadrant, center, corners, ids, status)
             cv2.imshow("pi only", cv2.resize(frame, PREVIEW_SIZE))
