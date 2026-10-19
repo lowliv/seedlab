@@ -33,16 +33,20 @@ const float Ts = Ts_ms / 1000.0;
 const float run_time = 8.0;
 unsigned long start_time_ms, last_time_ms;
 
-float batteryV = 3; // Battery Voltage
+float batteryV = 7.6; // Battery Voltage
 
 // Past positions
+float prev3PosRadR = 0;
+float prev3PosRadL = 0;
+float prev2PosRadR = 0;
+float prev2PosRadL = 0;
 float prevPosRadR = 0;
 float prevPosRadL = 0;
 
 // Controller parameters
 const float KpVELR = 1.358;
 const float KiVELR = 2;
-const float KpPOSR = 5.6;
+const float KpPOSR = 1.2;
 const float KiPOSR = 0;
 const float KpVELL = 1.4;
 const float KiVELL = 2;
@@ -94,6 +98,8 @@ void encoderIsrL() {
 // Function to drive and control the motor based on target velocity
 void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velIntegral) {
   float voltage;
+  float maxV = 4;
+  velTarget = constrain(velTarget, -maxV, maxV);
   float velError = velTarget - vel;
   velIntegral += velError * Ts;
   if (dirPin == RIGHT) {
@@ -201,18 +207,22 @@ void loop() {
   
   // Turns counts into rad values and estimates velocity.
   float posRadR = -2 * PI * posR / 3200.0;
-  float velR = (posRadR - prevPosRadR) / Ts;
+  float velR = (posRadR - prev2PosRadR) / (3*Ts);
+  prev3PosRadR = prev2PosRadR;
+  prev2PosRadR = prevPosRadR;
   prevPosRadR = posRadR;
   float posRadL = 2 * PI * posL / 3200.0;
-  float velL = (posRadL - prevPosRadL) / Ts;
+  float velL = (posRadL - prev2PosRadL) / (3*Ts);
+  prev3PosRadL = prev2PosRadL;
+  prev2PosRadL = prevPosRadL;
   prevPosRadL = posRadL;
 
   
   float velTargetR = 3;
   float velTargetL = 3;
   
-  velDrive(PWM_RIGHT, RIGHT, velTargetR, velR, velIntegralR);
-  velDrive(PWM_LEFT, LEFT, velTargetL, velL, velIntegralL);
+  //velDrive(PWM_RIGHT, RIGHT, velTargetR, velR, velIntegralR);
+  //velDrive(PWM_LEFT, LEFT, velTargetL, velL, velIntegralL);
   
   float posTargetR;
   float posTargetL;
@@ -231,12 +241,12 @@ void loop() {
     posTargetL = 0;
   }
   */
-  //posTargetR = 6*PI;
-  //posTargetL = 6*PI;
+  posTargetR = 6*PI;
+  posTargetL = 6*PI;
 
   // Call the position controllers for each wheel
-  //posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
-  //posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
+  posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
+  posDrive(PWM_LEFT, LEFT, posTargetL, posRadL, velL, posIntegralL, velIntegralL);
   
   // Print statements for debugging
   /*
