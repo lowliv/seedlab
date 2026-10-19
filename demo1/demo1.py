@@ -41,7 +41,7 @@ def measure_angle(center, matrix, dist):
     point = np.array([[center]])
     normal = cv2.undistortPoints(point, matrix, dist)
     z_normal = normal[0, 0, 0]
-    angle = float(np.degrees(np.arctan2(z_normal, 1.0)))
+    angle = -np.degrees(np.arctan2(z_normal, 1.0))
     return angle
 
 # function that opens the camera and returns an error if it cant
