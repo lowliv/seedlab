@@ -6,10 +6,60 @@ import cv2
 import numpy as np
 from cv2 import aruco
 from smbus2 import SMBus
+import adafruit_character_lcd.character_lcd_rgb_i2c as character_lcd
+import busio
+import board
+import time
+import threading
+import queue
 
 ARDUINO_ADDR = 8
 MARKER_FT = 1.935 / 12
 FOV_DEG = 53.5
+
+lcdI2c = busio.I2C(board.SCL, board.SDA)
+lcd = character_lcd.Character_LCD_RGB_I2C(lcdI2c, 16, 2)
+lcd.color = [255, 255, 255]
+
+lcd_queue = queue.Queue(maxsize=1)
+stop_event = threading.Event()
+
+def lcd_worker():
+    last = None
+
+    while not stop_event.is_set():
+        try:
+            text = lcd_queue.get(timeout=0.1)
+        except queue.Empty:
+            continue
+
+        if last == text:
+            continue
+        else:
+            lcd.clear()
+            lcd.message = text
+            last = text
+
+            time.sleep(0.5)
+
+
+def send_lcd(out):
+    try:
+        lcd_queue.put_nowait(out)
+    except queue.Full:
+        try:
+            lcd_queue.get_nowait()
+        except queue.Empty:
+            pass
+
+        try:
+            lcd_queue.put_nowait(out)
+        except queue.Full:
+            pass
+
+
+lcd_thread = threading.Thread(target=lcd_worker, daemon=True)
+lcd_thread.start()
 
 # Load camera calibration
 with open("calibration.pkl", "rb") as f:
@@ -79,6 +129,8 @@ while True:
     except OSError:
         pass
 
+    send_lcd(text)
+
     cv2.line(frame, (w // 2, 0), (w // 2, h), (255, 0, 255), 1)
     cv2.putText(
         frame, text, (4, 14),
@@ -89,5 +141,7 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord("q"):
         break
 
+stop_event.set()
+lcd_thread.join(timeout=1)
 cam.release()
 cv2.destroyAllWindows()
