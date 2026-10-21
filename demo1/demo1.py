@@ -82,66 +82,72 @@ detector = aruco.ArucoDetector(
     params
 )
 
-while True:
-    ok, frame = cam.read()
-    if not ok:
-        continue
+try:
+    while True:
+        ok, frame = cam.read()
+        if not ok:
+            continue
 
-    # Correct lens distortion
-    frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
+        # Correct lens distortion
+        frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
 
-    h, w = frame.shape[:2]
-    fx = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
+        h, w = frame.shape[:2]
+        fx_dist = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
+        fx_angle = cameraMatrix[0, 0]
+        cx = cameraMatrix[0, 2]
 
-    corners, ids, _ = detector.detectMarkers(
-        cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    )
-
-    found = ids is not None
-    angle = dist = 0.0
-    text = "NO MARKER"
-
-    if found:
-        c = corners[0].reshape(4, 2)
-        u = c[:, 0].mean()
-        side = np.mean([
-            np.linalg.norm(c[k] - c[k - 1])
-            for k in range(4)
-        ])
-
-        angle = -math.degrees(math.atan((u - w / 2) / fx))
-        dist = fx * MARKER_FT / side
-        text = f"{angle:+.1f} deg  {dist:.2f} ft"
-
-        aruco.drawDetectedMarkers(frame, corners, ids)
-
-    try:
-        i2c.write_i2c_block_data(
-            ARDUINO_ADDR,
-            0,
-            list(struct.pack(
-                ">BhH",
-                found,
-                int(angle * 100),
-                int(dist * 100)
-            ))
+        corners, ids, _ = detector.detectMarkers(
+            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         )
-    except OSError:
-        pass
 
-    send_lcd(text)
+        found = ids is not None
+        angle = dist = 0.0
+        text = "NO MARKER"
 
-    cv2.line(frame, (w // 2, 0), (w // 2, h), (255, 0, 255), 1)
-    cv2.putText(
-        frame, text, (4, 14),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1
-    )
-    cv2.imshow("pi only", cv2.resize(frame, (640, 480)))
+        if found:
+            c = corners[0].reshape(4, 2)
+            u = c[:, 0].mean()
+            side = np.mean([
+                np.linalg.norm(c[k] - c[k - 1])
+                for k in range(4)
+            ])
 
-    if cv2.waitKey(1) & 0xFF == ord("q"):
-        break
+            # angle = -math.degrees(math.atan((u - w / 2) / fx_dist))
+            angle = math.degrees(math.atan((cx - u) / fx_angle))
+            dist = fx_dist * MARKER_FT / side
+            text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
-stop_event.set()
-lcd_thread.join(timeout=1)
-cam.release()
-cv2.destroyAllWindows()
+            aruco.drawDetectedMarkers(frame, corners, ids)
+
+        try:
+            i2c.write_i2c_block_data(
+                ARDUINO_ADDR,
+                0,
+                list(struct.pack(
+                    ">BhH",
+                    found,
+                    int(angle * 100),
+                    int(dist * 100)
+                ))
+            )
+        except OSError:
+            pass
+
+        send_lcd(text)
+
+        cv2.line(frame, (w // 2, 0), (w // 2, h), (255, 0, 255), 1)
+        cv2.putText(
+            frame, text, (4, 14),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1
+        )
+        cv2.imshow("pi only", cv2.resize(frame, (640, 480)))
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+finally:
+    stop_event.set()
+    lcd_thread.join(timeout=1)
+    lcd.clear()
+    cam.release()
+    cv2.destroyAllWindows()
