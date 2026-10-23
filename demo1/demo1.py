@@ -92,8 +92,8 @@ try:
         frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
 
         h, w = frame.shape[:2]
-        fx_dist = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
-        fx_angle = cameraMatrix[0, 0]
+        fx_angle = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
+        fx_dist = cameraMatrix[0, 0]
         cx = cameraMatrix[0, 2]
 
         corners, ids, _ = detector.detectMarkers(
@@ -112,8 +112,8 @@ try:
                 for k in range(4)
             ])
 
-            # angle = -math.degrees(math.atan((u - w / 2) / fx_dist))
-            angle = math.degrees(math.atan((cx - u) / fx_angle))
+            angle = -math.degrees(math.atan((u - w / 2) / fx_angle))
+            # angle = math.degrees(math.atan((cx - u) / fx_angle))
             dist = fx_dist * MARKER_FT / side
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
