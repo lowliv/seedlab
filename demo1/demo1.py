@@ -67,12 +67,14 @@ with open("calibration.pkl", "rb") as f:
 
 # Scale calibration matrix from 640x480 to 320x240
 cameraMatrix = cameraMatrix.copy()
-cameraMatrix[:2, :] *= 0.5
+# cameraMatrix[:2, :] *= 0.5
 
 i2c = SMBus(1)
 cam = cv2.VideoCapture(0)
-cam.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
-cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
+cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+#cam.set(cv2.CAP_PROP_FRAME_WIDTH, 320)
+#cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 240)
 cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
 params = aruco.DetectorParameters()
@@ -112,9 +114,11 @@ try:
                 for k in range(4)
             ])
 
-            angle = -math.degrees(math.atan((u - w / 2) / fx_angle))
-            # angle = math.degrees(math.atan((cx - u) / fx_angle))
+            #angle = -math.degrees(math.atan((u - w / 2) / fx_dist))
+            angle = math.degrees(math.atan((cx - u) / fx_dist))
             dist = fx_dist * MARKER_FT / side
+            #dist2 = fx_angle * MARKER_FT / side
+            #dist = (dist1 + dist2) / 2
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
             aruco.drawDetectedMarkers(frame, corners, ids)
