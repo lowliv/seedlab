@@ -6,6 +6,19 @@
 #include <Wire.h>
 #define MY_ADDR 8
 
+
+//~~~set for demo~~~
+float turnDegrees = -90;
+float move_distance_in = 24;
+//~~~
+
+float move_distance = move_distance_in*0.33333;
+float radPerDeg = 0.041;
+bool turning = true;
+const unsigned long turnTime = 40*abs(turnDegrees);
+float posTargetR = 0;
+float posTargetL = 0;
+
 volatile uint8_t cmdA = 0; // From PI
 volatile uint8_t cmdB = 0; // From Pi
 volatile bool newCmd = true;
@@ -145,6 +158,7 @@ void posDrive(int pwmPin, int dirPin, float posTarget, float pos, float vel, flo
   velDrive(pwmPin, dirPin, velTarget, vel, velIntegral);
 }
 
+
 // I2C receive handler. Runs in interrupt context, so no Serial printing here.
 // Reads every byte that arrived and uses the LAST TWO as the commands, so it
 // works whether or not the Pi sends a leading register/offset byte.
@@ -197,6 +211,11 @@ void setup() {
   enableInterrupt(dtPinL, encoderIsrL, CHANGE);
   
   Timer1.frequency(25);
+
+  //set clockwise/counterclockwise
+  posTargetL =  turnDegrees * radPerDeg;
+  posTargetR = -turnDegrees * radPerDeg;
+
   // Inialize start and last time to same value
   start_time_ms = last_time_ms = millis();
 }
@@ -224,8 +243,6 @@ void loop() {
   //velDrive(PWM_RIGHT, RIGHT, velTargetR, velR, velIntegralR);
   //velDrive(PWM_LEFT, LEFT, velTargetL, velL, velIntegralL);
   
-  float posTargetR;
-  float posTargetL;
   
   
   // Sets the target rotations in radians based on the bits recieved
@@ -241,8 +258,35 @@ void loop() {
     posTargetL = 0;
   }
   */
-  posTargetR = 6*PI;
-  posTargetL = 6*PI;
+
+
+  if (turning) {
+    if (millis() - start_time_ms >= turnTime) {
+      turning = false;
+
+
+      // Zero the encoders so the drive starts from 0
+      noInterrupts();
+      posR = 0;
+      posL = 0;
+      interrupts();
+
+      prev3PosRadR = prev2PosRadR = prevPosRadR = 0;
+      prev3PosRadL = prev2PosRadL = prevPosRadL = 0;
+      posIntegralR = posIntegralL = 0;
+      velIntegralR = velIntegralL = 0;
+
+      posRadR = posRadL = 0;
+      velR = velL = 0;
+
+      // Set the drive targets
+      posTargetR = move_distance;
+      posTargetL = move_distance;
+
+      // Restart the timer so the stop time counts from the start of the drive
+      start_time_ms = millis();
+    }
+  }
 
   // Call the position controllers for each wheel
   posDrive(PWM_RIGHT, RIGHT, posTargetR, posRadR, velR, posIntegralR, velIntegralR);
@@ -274,7 +318,7 @@ void loop() {
   }
   while (millis() < last_time_ms + Ts_ms) {}
   last_time_ms = millis();
-  while (last_time_ms > 5000) {
+  while (last_time_ms > 10000) {
     Timer1.pwm(PWM_RIGHT, (0));
     Timer1.pwm(PWM_LEFT, (0));
   }
