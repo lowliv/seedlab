@@ -1,3 +1,11 @@
+"""
+This is the RaspberryPi component of Demo1.
+The purpose is to ensure our camera is calibrated and we can effectively measure angles and distances of aruco markers to pass information to the arduino.
+
+To use, ensure the lcd and camera are properly connected to the pi. If no .pkl files are present, run getImages.py followed by calibration.py to generate them.
+Place the camera on a flat surface aiming level with the surface. place an aruco marker within detectable distance and field of view, and measure distance and angle from the camera using a method of your choice.
+Run the program and compare output to measurements.
+"""
 import math
 import struct
 import pickle
