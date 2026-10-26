@@ -1,5 +1,7 @@
 /* 
-
+Cammeron Macmillan and Wren Heinley Group #12
+Demo 1 integration and controls
+10/26/26
 */
 #include <TimerOne_V2.h>
 #include <EnableInterrupt.h>
@@ -12,6 +14,7 @@ float turnDegrees = -90;
 float move_distance_in = 24;
 //~~~
 
+//set values for turning
 float move_distance = move_distance_in*0.33333;
 float radPerDeg = 0.041;
 bool turning = true;
@@ -19,10 +22,12 @@ const unsigned long turnTime = 40*abs(turnDegrees);
 float posTargetR = 0;
 float posTargetL = 0;
 
-volatile uint8_t cmdA = 0; // From PI
-volatile uint8_t cmdB = 0; // From Pi
+//set variables to get data form PI
+volatile uint8_t cmdA = 0;
+volatile uint8_t cmdB = 0;
 volatile bool newCmd = true;
 
+//set pins
 const int ENABLE = 4;
 const int RIGHT = 8;
 const int LEFT = 7;
@@ -259,7 +264,7 @@ void loop() {
   }
   */
 
-
+  // Statment to turn robot before moving.
   if (turning) {
     if (millis() - start_time_ms >= turnTime) {
       turning = false;
