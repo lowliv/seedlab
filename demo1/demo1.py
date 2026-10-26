@@ -13,17 +13,21 @@ import time
 import threading
 import queue
 
+# constants for the program
 ARDUINO_ADDR = 8
 MARKER_FT = 1.935 / 12
 FOV_DEG = 53.5
 
+# lcd instantiation
 lcdI2c = busio.I2C(board.SCL, board.SDA)
 lcd = character_lcd.Character_LCD_RGB_I2C(lcdI2c, 16, 2)
 lcd.color = [255, 255, 255]
 
+# lcd queue on separate thread
 lcd_queue = queue.Queue(maxsize=1)
 stop_event = threading.Event()
 
+# gets msg from lcd queue
 def lcd_worker():
     last = None
 
@@ -42,7 +46,7 @@ def lcd_worker():
 
             time.sleep(0.5)
 
-
+# writes to lcd from msg pulled from queue
 def send_lcd(out):
     try:
         lcd_queue.put_nowait(out)
@@ -57,7 +61,7 @@ def send_lcd(out):
         except queue.Full:
             pass
 
-
+# starts lcd thread
 lcd_thread = threading.Thread(target=lcd_worker, daemon=True)
 lcd_thread.start()
 
@@ -84,6 +88,7 @@ detector = aruco.ArucoDetector(
     params
 )
 
+# main loop
 try:
     while True:
         ok, frame = cam.read()
@@ -93,6 +98,7 @@ try:
         # Correct lens distortion
         frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
 
+        # get frame dimensions and find focal length
         h, w = frame.shape[:2]
         fx_angle = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
         fx_dist = cameraMatrix[0, 0]
@@ -102,10 +108,12 @@ try:
             cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         )
 
+        # check for markers
         found = ids is not None
         angle = dist = 0.0
         text = "NO MARKER"
 
+        # if markers find angle and distance
         if found:
             c = corners[0].reshape(4, 2)
             u = c[:, 0].mean()
@@ -123,6 +131,7 @@ try:
 
             aruco.drawDetectedMarkers(frame, corners, ids)
 
+        # send data to arduino
         try:
             i2c.write_i2c_block_data(
                 ARDUINO_ADDR,
@@ -137,6 +146,7 @@ try:
         except OSError:
             pass
 
+        # send data to lcd
         send_lcd(text)
 
         cv2.line(frame, (w // 2, 0), (w // 2, h), (255, 0, 255), 1)
@@ -149,6 +159,7 @@ try:
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
+# close everything on termination
 finally:
     stop_event.set()
     lcd_thread.join(timeout=1)
