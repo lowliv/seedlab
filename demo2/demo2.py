@@ -26,6 +26,9 @@ ARDUINO_ADDR = 8
 MARKER_FT = 1.935 / 12
 FOV_DEG = 53.5
 
+left_arrow = cv2.imread("left_arrow.png")
+right_arrow = cv2.imread("right_arrow.png")
+
 # lcd instantiation
 lcdI2c = busio.I2C(board.SCL, board.SDA)
 lcd = character_lcd.Character_LCD_RGB_I2C(lcdI2c, 16, 2)
@@ -134,6 +137,21 @@ try:
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
             aruco.drawDetectedMarkers(frame, corners, ids)
+
+        left_result = cv2.matchTemplate(frame, left_arrow, cv2.COLOR_BGR2GRAY)
+        right_result = cv2.matchTemplate(frame, right_arrow, cv2.COLOR_BGR2GRAY)
+        left_conf = cv2.minMaxLoc(left_result)[1]
+        right_conf = cv2.minMaxLoc(right_result)[1]
+
+        # print(f"Left arrow confidence: {left_conf}")
+        # print(f"Right arrow confidence: {right_conf}")
+
+        if left_conf >= 0.9:
+            direction = "left"
+        elif right_conf >= 0.9:
+            direction = "right"
+        else:
+            direction = None
 
         # send data to arduino
         try:
