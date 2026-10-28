@@ -268,6 +268,7 @@ void loop() {
   if (turning) {
     if (millis() - start_time_ms >= turnTime) {
       turning = false;
+      delay(1000)
 
 
       // Zero the encoders so the drive starts from 0
