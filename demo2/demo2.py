@@ -26,8 +26,8 @@ ARDUINO_ADDR = 8
 MARKER_FT = 1.935 / 12
 FOV_DEG = 53.5
 
-left_arrow = cv2.imread("left_arrow.png")
-right_arrow = cv2.imread("right_arrow.png")
+left_arrow = cv2.imread("left_arrow.png", cv2.IMREAD_UNCHANGED)
+right_arrow = cv2.imread("right_arrow.png", cv2.IMREAD_UNCHANGED)
 
 # lcd instantiation
 lcdI2c = busio.I2C(board.SCL, board.SDA)
@@ -138,13 +138,13 @@ try:
 
             aruco.drawDetectedMarkers(frame, corners, ids)
 
-        left_result = cv2.matchTemplate(frame, left_arrow, cv2.COLOR_BGR2GRAY)
-        right_result = cv2.matchTemplate(frame, right_arrow, cv2.COLOR_BGR2GRAY)
+        left_result = cv2.matchTemplate(frame, left_arrow, cv2.TM_CCOEFF_NORMED)
+        right_result = cv2.matchTemplate(frame, right_arrow, cv2.TM_CCOEFF_NORMED)
         left_conf = cv2.minMaxLoc(left_result)[1]
         right_conf = cv2.minMaxLoc(right_result)[1]
 
-        # print(f"Left arrow confidence: {left_conf}")
-        # print(f"Right arrow confidence: {right_conf}")
+        print(f"Left arrow confidence: {left_conf}")
+        print(f"Right arrow confidence: {right_conf}")
 
         if left_conf >= 0.9:
             direction = "left"
