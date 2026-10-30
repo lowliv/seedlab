@@ -26,9 +26,6 @@ ARDUINO_ADDR = 8
 MARKER_FT = 1.935 / 12
 FOV_DEG = 53.5
 
-left_arrow = cv2.imread("left_arrow.png", cv2.IMREAD_UNCHANGED)
-right_arrow = cv2.imread("right_arrow.png", cv2.IMREAD_UNCHANGED)
-
 # lcd instantiation
 lcdI2c = busio.I2C(board.SCL, board.SDA)
 lcd = character_lcd.Character_LCD_RGB_I2C(lcdI2c, 16, 2)
@@ -120,6 +117,8 @@ try:
         angle = dist = 0.0
         text = "NO MARKER"
 
+        direction = None
+
         # if markers find angle and distance
         if found:
             c = corners[0].reshape(4, 2)
@@ -136,22 +135,27 @@ try:
             #dist = (dist1 + dist2) / 2
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
+            xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
+            y1 = yA + hA // 4
+            y2 = yA + 3 * hA // 4
+
+            left_reg = frame[y1:y2, max(0, xA - wA):xA]
+            right_reg = frame[y1:y2, xA + wA:min(frame.shape[1], xA + 2 * wA)]
+            green_hsv = cv2.cvtColor(left_reg, cv2.COLOR_BGR2HSV)
+            red_hsv = cv2.cvtColor(right_reg, cv2.COLOR_BGR2HSV)
+
+            green = cv2.inRange(green_hsv, (40, 65, 35), (90, 255, 255))
+            red = cv2.inRange(red_hsv, (0, 65, 35), (12, 255, 255))
+
+            if cv2.countNonZero(green) / green.size > 0.2:
+                direction = "left"
+            elif cv2.countNonZero(red) / red.size > 0.2:
+                direction = "right"
+            
+            print(direction)
+
             aruco.drawDetectedMarkers(frame, corners, ids)
 
-        left_result = cv2.matchTemplate(frame, left_arrow, cv2.TM_CCOEFF_NORMED)
-        right_result = cv2.matchTemplate(frame, right_arrow, cv2.TM_CCOEFF_NORMED)
-        left_conf = cv2.minMaxLoc(left_result)[1]
-        right_conf = cv2.minMaxLoc(right_result)[1]
-
-        print(f"Left arrow confidence: {left_conf}")
-        print(f"Right arrow confidence: {right_conf}")
-
-        if left_conf >= 0.9:
-            direction = "left"
-        elif right_conf >= 0.9:
-            direction = "right"
-        else:
-            direction = None
 
         # send data to arduino
         try:
