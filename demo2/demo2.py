@@ -149,8 +149,10 @@ try:
 
             if cv2.countNonZero(green) / green.size > 0.2:
                 direction = "left"
+                dir = 0
             elif cv2.countNonZero(red) / red.size > 0.2:
                 direction = "right"
+                dir = 1
             
             print(direction)
 
@@ -163,10 +165,11 @@ try:
                 ARDUINO_ADDR,
                 0,
                 list(struct.pack(
-                    ">BhH",
+                    ">BhHB",
                     found,
                     int(angle * 100),
-                    int(dist * 100)
+                    int(dist * 100),
+                    dir
                 ))
             )
         except OSError:
