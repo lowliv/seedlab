@@ -92,6 +92,65 @@ detector = aruco.ArucoDetector(
     params
 )
 
+def send_arduino(m, a, d):
+    try:
+        i2c.write_i2c_block_data(
+            ARDUINO_ADDR,
+            0,
+            list(struct.pack(
+                ">Bff",
+                m,
+                a,
+                d
+            ))
+        )
+    except OSError:
+        pass
+
+
+fx_dist = cameraMatrix[0, 0]
+cx = cameraMatrix[0, 2]
+
+# try:
+mode = 0
+angle = 360
+dist = 0
+send_arduino(mode, angle, dist)
+while True:
+    ok, frame = cam.read()
+    if not ok:
+        continue
+
+    # Correct lens distortion
+    frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
+
+    h, w = frame.shape[:2]
+    fx_angle = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
+
+    corners, ids, _ = detector.detectMarkers(
+        cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    )
+    found = ids is not None
+
+
+    if found:
+        c = corners[0].reshape(4, 2)
+        u = c[:, 0].mean()
+        side = np.mean([
+            np.linalg.norm(c[k] - c[k - 1])
+            for k in range(4)
+        ])
+
+        #angle = -math.degrees(math.atan((u - w / 2) / fx_angle))
+        angle = math.degrees(math.atan((cx - u) / fx_dist))
+        dist = fx_angle * MARKER_FT / side
+        send_arduino(mode, angle, dist)
+
+        break
+
+
+mode = 1
+
 # main loop
 try:
     while True:
@@ -105,8 +164,6 @@ try:
         # get frame dimensions and find focal length
         h, w = frame.shape[:2]
         fx_angle = (w / 2) / math.tan(math.radians(FOV_DEG / 2))
-        fx_dist = cameraMatrix[0, 0]
-        cx = cameraMatrix[0, 2]
 
         corners, ids, _ = detector.detectMarkers(
             cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -117,7 +174,6 @@ try:
         angle = dist = 0.0
         text = "NO MARKER"
 
-        direction = None
 
         # if markers find angle and distance
         if found:
@@ -135,45 +191,32 @@ try:
             #dist = (dist1 + dist2) / 2
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
-            xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
-            y1 = yA + hA // 4
-            y2 = yA + 3 * hA // 4
+            if dist < 0.8:
+                xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
+                y1 = yA + hA // 4
+                y2 = yA + 3 * hA // 4
 
-            left_reg = frame[y1:y2, max(0, xA - wA):xA]
-            right_reg = frame[y1:y2, xA + wA:min(frame.shape[1], xA + 2 * wA)]
-            green_hsv = cv2.cvtColor(left_reg, cv2.COLOR_BGR2HSV)
-            red_hsv = cv2.cvtColor(right_reg, cv2.COLOR_BGR2HSV)
+                left_reg = frame[y1:y2, max(0, xA - wA):xA]
+                right_reg = frame[y1:y2, xA + wA:min(frame.shape[1], xA + 2 * wA)]
+                green_hsv = cv2.cvtColor(left_reg, cv2.COLOR_BGR2HSV)
+                red_hsv = cv2.cvtColor(right_reg, cv2.COLOR_BGR2HSV)
 
-            green = cv2.inRange(green_hsv, (40, 65, 35), (90, 255, 255))
-            red = cv2.inRange(red_hsv, (0, 65, 35), (12, 255, 255))
+                green = cv2.inRange(green_hsv, (40, 65, 35), (90, 255, 255))
+                red = cv2.inRange(red_hsv, (0, 65, 35), (12, 255, 255))
 
-            if cv2.countNonZero(green) / green.size > 0.2:
-                direction = "left"
-                dir = 0
-            elif cv2.countNonZero(red) / red.size > 0.2:
-                direction = "right"
-                dir = 1
-            
-            print(direction)
+                if cv2.countNonZero(green) / green.size > 0.2:
+                    angle = 90
+                elif cv2.countNonZero(red) / red.size > 0.2:
+                    angle = -90
+                
+                mode = 0
+                send_arduino(mode, angle, dist)
+
+
+            send_arduino(mode, angle, dist)
 
             aruco.drawDetectedMarkers(frame, corners, ids)
 
-
-        # send data to arduino
-        try:
-            i2c.write_i2c_block_data(
-                ARDUINO_ADDR,
-                0,
-                list(struct.pack(
-                    ">BhHB",
-                    found,
-                    int(angle * 100),
-                    int(dist * 100),
-                    dir
-                ))
-            )
-        except OSError:
-            pass
 
         # send data to lcd
         send_lcd(text)
