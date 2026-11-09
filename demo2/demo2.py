@@ -96,10 +96,9 @@ def send_arduino(m, a, d):
     try:
         i2c.write_i2c_block_data(
             ARDUINO_ADDR,
-            0,
+            m,
             list(struct.pack(
-                ">Bff",
-                m,
+                "<ff",
                 a,
                 d
             ))
@@ -116,6 +115,8 @@ mode = 0
 angle = 360
 dist = 0
 send_arduino(mode, angle, dist)
+print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
+
 while True:
     ok, frame = cam.read()
     if not ok:
@@ -134,6 +135,7 @@ while True:
 
 
     if found:
+        print("Found marker!")
         c = corners[0].reshape(4, 2)
         u = c[:, 0].mean()
         side = np.mean([
@@ -145,6 +147,7 @@ while True:
         angle = math.degrees(math.atan((cx - u) / fx_dist))
         dist = fx_angle * MARKER_FT / side
         send_arduino(mode, angle, dist)
+        print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
 
         break
 
@@ -211,9 +214,11 @@ try:
                 
                 mode = 0
                 send_arduino(mode, angle, dist)
+                print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
 
 
             send_arduino(mode, angle, dist)
+            print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
 
             aruco.drawDetectedMarkers(frame, corners, ids)
 
