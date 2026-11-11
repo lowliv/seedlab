@@ -85,6 +85,10 @@ cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
+
+fps = cam.get(cv2.CAP_PROP_FPS)
+print(f"Camera FPS: {fps}")
+
 params = aruco.DetectorParameters()
 params.minMarkerPerimeterRate = 0.01
 detector = aruco.ArucoDetector(
@@ -94,6 +98,7 @@ detector = aruco.ArucoDetector(
 
 def send_arduino(m, a, d):
     try:
+        d = d * 12
         i2c.write_i2c_block_data(
             ARDUINO_ADDR,
             m,
@@ -111,10 +116,12 @@ fx_dist = cameraMatrix[0, 0]
 cx = cameraMatrix[0, 2]
 
 # try:
-mode = 0
+mode = 2
 angle = 360
 dist = 0
+
 send_arduino(mode, angle, dist)
+
 print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
 
 while True:
@@ -133,8 +140,8 @@ while True:
     )
     found = ids is not None
 
-
     if found:
+        send_arduino(3, 0, 0)
         print("Found marker!")
         c = corners[0].reshape(4, 2)
         u = c[:, 0].mean()
@@ -145,9 +152,13 @@ while True:
 
         #angle = -math.degrees(math.atan((u - w / 2) / fx_angle))
         angle = math.degrees(math.atan((cx - u) / fx_dist))
+        # angle -= 20
         dist = fx_angle * MARKER_FT / side
+        mode = 0
         send_arduino(mode, angle, dist)
         print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
+        time.sleep(0.8)
+        # send_arduino(3, 0, 0)
 
         break
 
@@ -160,6 +171,7 @@ try:
         ok, frame = cam.read()
         if not ok:
             continue
+        # start = time.perf_counter()
 
         # Correct lens distortion
         frame = cv2.undistort(frame, cameraMatrix, distCoeffs)
@@ -194,34 +206,14 @@ try:
             #dist = (dist1 + dist2) / 2
             text = f"{angle:+.1f} deg  {dist:.2f} ft"
 
-            if dist < 0.8:
-                xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
-                y1 = yA + hA // 4
-                y2 = yA + 3 * hA // 4
-
-                left_reg = frame[y1:y2, max(0, xA - wA):xA]
-                right_reg = frame[y1:y2, xA + wA:min(frame.shape[1], xA + 2 * wA)]
-                green_hsv = cv2.cvtColor(left_reg, cv2.COLOR_BGR2HSV)
-                red_hsv = cv2.cvtColor(right_reg, cv2.COLOR_BGR2HSV)
-
-                green = cv2.inRange(green_hsv, (40, 65, 35), (90, 255, 255))
-                red = cv2.inRange(red_hsv, (0, 65, 35), (12, 255, 255))
-
-                if cv2.countNonZero(green) / green.size > 0.2:
-                    angle = 90
-                elif cv2.countNonZero(red) / red.size > 0.2:
-                    angle = -90
-                
-                mode = 0
-                send_arduino(mode, angle, dist)
-                print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
-
-
             send_arduino(mode, angle, dist)
+            # elapsed = time.perf_counter() - start
             print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
-
+            # print(f"Elasped time in ms: {elapsed*1000}")
             aruco.drawDetectedMarkers(frame, corners, ids)
 
+            if dist < 1.5:
+                break
 
         # send data to lcd
         send_lcd(text)
@@ -235,6 +227,34 @@ try:
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
+
+    while True:
+        print("Close enough")
+        send_arduino(3, 0, 0)
+        xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
+        y1 = yA + hA // 4
+        y2 = yA + 3 * hA // 4
+
+        left_reg = frame[y1:y2, max(0, xA - wA):xA]
+        right_reg = frame[y1:y2, xA + wA:min(frame.shape[1], xA + 2 * wA)]
+        green_hsv = cv2.cvtColor(left_reg, cv2.COLOR_BGR2HSV)
+        red_hsv = cv2.cvtColor(right_reg, cv2.COLOR_BGR2HSV)
+
+        green = cv2.inRange(green_hsv, (40, 65, 35), (90, 255, 255))
+        red = cv2.inRange(red_hsv, (0, 65, 35), (12, 255, 255))
+
+        if cv2.countNonZero(green) / green.size > 0.2:
+            angle = 90
+            print("Green detected")
+            break
+        elif cv2.countNonZero(red) / red.size > 0.2:
+            angle = -90
+            print("Red detected")
+            break
+
+    mode = 0
+    send_arduino(mode, angle, dist)
+    print(f"Mode: {mode}, angle: {angle}, dist: {dist}")
 
 # close everything on termination
 finally:
