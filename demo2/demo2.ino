@@ -179,7 +179,7 @@ void posDrive(int pwmPin, int dirPin, float posTarget, float maxV, float pos, fl
 }
 
 void syncDrive(float posR, float posL, float targetR, float targetL, float &maxVelR, float &maxVelL, float baseMaxV) {
-  float dirR, dirL;
+  float dirR, dirL, progressR, progressL;
 
   if (targetR >= 0) {
     dirR = 1.0;
@@ -193,9 +193,15 @@ void syncDrive(float posR, float posL, float targetR, float targetL, float &maxV
     dirL = -1.0;
   }
 
+
   // Progress in the commanded direction
-  float progressR = (2 * posR) / (targetR + targetL);
-  float progressL = (2 * posL) / (targetL+ targetR);
+  if (dirR == dirL) {
+    progressR = (2 * posR) / (targetR + targetL);
+    progressL = (2 * posL) / (targetL + targetR);
+  } else {
+    progressR = (posR) / (targetR);
+    progressL = (posL) / (targetL);
+  }
 
   float syncError = progressL - progressR;
 
@@ -265,8 +271,8 @@ void turn(float turnDegrees, float baseMaxV) {
       interrupts();
 
       if (cmd.mode == 0) {
-        posTargetR = (cmd.angle  * radPerDeg) - (velR * delay_ms / 1000);
-        posTargetL = -(cmd.angle  * radPerDeg) - (velL * delay_ms / 1000);
+        posTargetR = posRadR + (cmd.angle  * radPerDeg) - (velR * delay_ms / 1000);
+        posTargetL = posRadL -( cmd.angle  * radPerDeg) - (velL * delay_ms / 1000);
 
         Serial.print("cmd.angle:" );
         Serial.print(cmd.angle);
@@ -451,9 +457,10 @@ void loop() {
     if (cmd.mode == 2) {
       Serial.println("2");
       newCmd = false;
-      while (newCmd == false) {
-        turn(45, 2.5);
-      }
+      turn(360, 0.5);
+      //while (newCmd == false) {
+      //  turn(45, 2.5);
+      //}
     }
 
     if (cmd.mode == 3) {
