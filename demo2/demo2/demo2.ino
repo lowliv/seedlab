@@ -1,25 +1,12 @@
 /* 
 Cammeron Macmillan and Wren Heinley Group #12
-Demo 1 integration and controls
-10/26/26
+Demo 2 integration and controls
+
 */
 #include <TimerOne_V2.h>
 #include <EnableInterrupt.h>
 #include <Wire.h>
 #define MY_ADDR 8
-
-
-//~~~set for demo~~~
-//float turnDegrees = -90;
-//float moveDistanceIn = 24;
-//~~~
-
-//set values for turning
-float radPerIn = 0.3333333;
-float radPerDeg = 0.0416;
-
-float posTargetR = 0;
-float posTargetL = 0;
 
 //set variables to get data form PI
 volatile uint8_t cmdA = 0;
@@ -50,28 +37,36 @@ const float Ts = Ts_ms / 1000.0;
 const float run_time = 8.0;
 unsigned long start_time_ms, last_time_ms;
 
+//set values for turning
+const float radPerIn = 0.341;
+const float radPerDeg = 0.0416;
 float batteryV = 7.6; // Battery Voltage
 
-// Past positions
-float prev2PosRadR = 0;
-float prev2PosRadL = 0;
-float prevPosRadR = 0;
-float prevPosRadL = 0;
-
 // Controller parameters
-//const float KpVELR = 1.358;
-const float KpVELR = 1.19;
+const float KpVELR = 1.4;
 const float KiVELR = 2;
 const float KpPOSR = 1;
 const float KiPOSR = 0;
 
 const float KpVELL = 1.4;
 const float KiVELL = 2;
-const float KpPOSL = 1.2;
+const float KpPOSL = 1;
 const float KiPOSL = 0;
 
-const float KpSYNC = 0.2;
-const float maxSyncCorrection = 0.2;
+const float KpSYNC = 2.4;
+//const float baseMaxVel = 4; 
+//const float minMaxVel = 3.5;
+
+const float turnFVoltage = 1.5;
+const float moveFVoltage = 1;
+
+float posTargetR, posTargetL;
+
+// Past positions
+float prev2PosRadR = 0;
+float prev2PosRadL = 0;
+float prevPosRadR = 0;
+float prevPosRadL = 0;
 
 // Integral values
 float posIntegralR = 0;
@@ -116,16 +111,17 @@ void encoderIsrL() {
 }
 
 // Function to drive and control the motor based on target velocity
-void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velIntegral) {
+void velDrive(int pwmPin, int dirPin, float velTarget, float maxV, float vel, float &velIntegral, float fVoltage) {
   float voltage;
   float velError = velTarget - vel;
   velIntegral += velError * Ts;
-  float frictionVoltage = 0;
 
+
+  float frictionVoltage = 0;
   if (velTarget > 0.01) {
-    frictionVoltage = 1.1;
+    frictionVoltage = fVoltage;
   } else if (velTarget < -0.01) {
-    frictionVoltage = -1.1;
+    frictionVoltage = -1 * fVoltage;
   }
 
   if (dirPin == RIGHT) {
@@ -158,7 +154,7 @@ void velDrive(int pwmPin, int dirPin, float velTarget, float vel, float &velInte
 }
 
 // Function to drive and control the motor based on target position
-void posDrive(int pwmPin, int dirPin, float posTarget, float maxV, float pos, float vel, float &posIntegral, float &velIntegral) {
+void posDrive(int pwmPin, int dirPin, float posTarget, float maxV, float pos, float vel, float &posIntegral, float &velIntegral, float fVoltage) {
   float velTarget;
   float posError = posTarget - pos;
   posIntegral += posError * Ts;
@@ -169,13 +165,11 @@ void posDrive(int pwmPin, int dirPin, float posTarget, float maxV, float pos, fl
     velTarget = KpPOSL * posError + KiPOSL * posIntegral;
   }
   velTarget = constrain(velTarget, -maxV, maxV);
-  velDrive(pwmPin, dirPin, velTarget, vel, velIntegral);
+  velDrive(pwmPin, dirPin, velTarget, maxV, vel, velIntegral, fVoltage);
 }
 
-void syncDrive(float posR, float posL, float targetR, float targetL, float &correctedR, float &correctedL) {
-  // Direction each wheel is supposed to move
-  float dirR;
-  float dirL;
+void syncDrive(float posR, float posL, float targetR, float targetL, float &maxVelR, float &maxVelL, float baseMaxV) {
+  float dirR, dirL;
 
   if (targetR >= 0) {
     dirR = 1.0;
@@ -189,20 +183,24 @@ void syncDrive(float posR, float posL, float targetR, float targetL, float &corr
     dirL = -1.0;
   }
 
-  // Progress in each wheel's commanded direction
+  // Progress in the commanded direction
   float progressR = dirR * posR;
   float progressL = dirL * posL;
 
-  // Positive means left wheel is ahead
   float syncError = progressL - progressR;
 
-  // Calculate a limited correction
-  float correction = KpSYNC * syncError;
-  correction = constrain(correction, -maxSyncCorrection,maxSyncCorrection);
- 
-  // Adjust targets in each wheel's intended direction
-  correctedR = targetR + dirR * correction;
-  correctedL = targetL - dirL * correction;
+  maxVelR = baseMaxV;
+  maxVelL = baseMaxV;
+
+  // Positive error means left wheel is ahead
+  if (syncError > 0) {
+    maxVelL -= KpSYNC * syncError;
+  } else {
+    maxVelR += KpSYNC * syncError;
+  }
+
+  maxVelR = constrain(maxVelR,  baseMaxV - 0.5, baseMaxV + 0.5);
+  maxVelL = constrain(maxVelL,  baseMaxV - 0.5, baseMaxV + 0.5);
 }
 
 // I2C receive handler. Runs in interrupt context, so no Serial printing here.
@@ -221,6 +219,131 @@ void receive(int numBytes) {
     cmdB = last;
     newCmd = true;
   }
+}
+
+void turn(float turnDegrees, float baseMaxV) {
+  // Zero the encoders so the drive starts from 0
+  posR = 0;
+  posL = 0;
+
+  float prev2PosRadR, prevPosRadR, posRadR;
+  float prev2PosRadL, prevPosRadL, posRadL;
+  prev2PosRadR = prevPosRadR = posRadR = 0;
+  prev2PosRadL = prevPosRadL = posRadL = 0;
+  posIntegralR = posIntegralL = 0;
+  velIntegralR = velIntegralL = 0;
+
+  //set clockwise/counterclockwise
+  posTargetL =  turnDegrees * radPerDeg;
+  posTargetR = -turnDegrees * radPerDeg;
+
+  // Restart the timer so the stop time counts from the start of the drive
+  start_time_ms = last_time_ms = millis();
+    
+  float tolerance = 0.01;
+  while (abs(posRadR - posTargetR) > tolerance ||
+        abs(prevPosRadR - posTargetR) > tolerance ||
+        abs(prev2PosRadR - posTargetR) > tolerance ||
+        abs(posRadL - posTargetL) > tolerance ||
+        abs(prevPosRadL - posTargetL) > tolerance ||
+        abs(prev2PosRadL - posTargetL) > tolerance) {
+
+    Serial.println("turning");
+
+    // Find the time in seconds since last loop
+    float t = (last_time_ms - start_time_ms) / 1000.0;
+  
+    // Turns counts into rad values and estimates velocity.
+    posRadR = 2 * PI * posR / 3200.0;
+    float velR = (posRadR - prevPosRadR) / (Ts);
+    prev2PosRadR = prevPosRadR;
+    prevPosRadR = posRadR;
+    posRadL = -2 * PI * posL / 3200.0;
+    float velL = (posRadL - prevPosRadL) / (Ts);
+    prev2PosRadL = prevPosRadL;
+    prevPosRadL = posRadL;
+
+    float maxVelR, maxVelL;
+
+    syncDrive(posRadR, posRadL, posTargetR, posTargetL,maxVelR, maxVelL, baseMaxV);
+
+    // Call the position controllers for each wheel
+    posDrive(PWM_RIGHT, RIGHT, posTargetR, maxVelR, posRadR,
+      velR, posIntegralR, velIntegralR, turnFVoltage);
+    posDrive(PWM_LEFT, LEFT, posTargetL, maxVelL, posRadL, 
+      velL, posIntegralL, velIntegralL, turnFVoltage);
+    
+    Serial.print(t);
+    Serial.print(", ");
+    Serial.print(velL);
+    Serial.print(", ");
+    Serial.println(velR);
+
+
+    while (millis() < last_time_ms + Ts_ms) {}
+    last_time_ms = millis();
+  }
+  Timer1.pwm(PWM_RIGHT, (0));
+  Timer1.pwm(PWM_LEFT, (0));
+  return;
+}
+
+void move(float moveDistanceIn, float baseMaxV) {
+  // Zero the encoders so the drive starts from 0
+  posR = 0;
+  posL = 0;
+
+  float prev2PosRadR, prevPosRadR, posRadR;
+  float prev2PosRadL, prevPosRadL, posRadL;
+  prev2PosRadR = prevPosRadR = posRadR = 0;
+  prev2PosRadL = prevPosRadL = posRadL = 0;
+  posIntegralR = posIntegralL = 0;
+  velIntegralR = velIntegralL = 0;
+
+  // Set the drive targets
+  posTargetR = moveDistanceIn * radPerIn;
+  posTargetL = moveDistanceIn * radPerIn;
+
+  // Restart the timer so the stop time counts from the start of the drive
+  start_time_ms = last_time_ms = millis();
+  float tolerance = 0.03;
+  while (abs(posRadR - posTargetR) > tolerance ||
+        abs(prevPosRadR - posTargetR) > tolerance ||
+        abs(prev2PosRadR - posTargetR) > tolerance ||
+        abs(posRadL - posTargetL) > tolerance ||
+        abs(prevPosRadL - posTargetL) > tolerance ||
+        abs(prev2PosRadL - posTargetL) > tolerance) {
+          
+    Serial.println("moving");
+    // Find the time in seconds since last loop
+    float t = (last_time_ms - start_time_ms) / 1000.0;
+  
+    // Turns counts into rad values and estimates velocity.
+    posRadR = 2 * PI * posR / 3200.0;
+    float velR = (posRadR - prevPosRadR) / (Ts);
+    prev2PosRadR = prevPosRadR;
+    prevPosRadR = posRadR;
+
+    posRadL = -2 * PI * posL / 3200.0;
+    float velL = (posRadL - prevPosRadL) / (Ts);
+    prev2PosRadL = prevPosRadL;
+    prevPosRadL = posRadL;
+
+    float maxVelR, maxVelL;
+    // Call the position controllers for each wheel
+    syncDrive(posRadR, posRadL, posTargetR, posTargetL,maxVelR, maxVelL, baseMaxV);
+
+    posDrive(PWM_RIGHT, RIGHT, posTargetR, maxVelR, posRadR, 
+      velR, posIntegralR, velIntegralR, moveFVoltage);
+    posDrive(PWM_LEFT, LEFT, posTargetL, maxVelL, posRadL,
+      velL, posIntegralL, velIntegralL, moveFVoltage);
+
+    while (millis() < last_time_ms + Ts_ms) {}
+    last_time_ms = millis();
+  }
+  Timer1.pwm(PWM_RIGHT, (0));
+  Timer1.pwm(PWM_LEFT, (0));
+  return;
 }
 
 void setup() {
@@ -256,149 +379,18 @@ void setup() {
   enableInterrupt(clkPinL, encoderIsrL, CHANGE);
   enableInterrupt(dtPinL, encoderIsrL, CHANGE);
   
-  Timer1.frequency(25);
+  Timer1.frequency(0.5);
 
   // Inialize start and last time to same value
   start_time_ms = last_time_ms = millis();
 }
 
-void turn(float turnDegrees) {
-  // Zero the encoders so the drive starts from 0
-  posR = 0;
-  posL = 0;
-
-  float prev2PosRadR, prevPosRadR, posRadR;
-  float prev2PosRadL, prevPosRadL, posRadL;
-  prev2PosRadR = prevPosRadR = posRadR = 0;
-  prev2PosRadL = prevPosRadL = posRadL = 0;
-  posIntegralR = posIntegralL = 0;
-  velIntegralR = velIntegralL = 0;
-
-  //set clockwise/counterclockwise
-  posTargetL =  turnDegrees * radPerDeg;
-  posTargetR = -turnDegrees * radPerDeg;
-
-  // Restart the timer so the stop time counts from the start of the drive
-  start_time_ms = millis();
-    
-  float tolerance = 0.01;
-  float maxV = 3;
-  while (abs(posRadR - posTargetR) > tolerance ||
-        abs(prevPosRadR - posTargetR) > tolerance ||
-        abs(prev2PosRadR - posTargetR) > tolerance ||
-        abs(posRadL - posTargetL) > tolerance ||
-        abs(prevPosRadL - posTargetL) > tolerance ||
-        abs(prev2PosRadL - posTargetL) > tolerance) {
-
-    Serial.println("turning");
-
-    // Find the time in seconds since last loop
-    float t = (last_time_ms - start_time_ms) / 1000.0;
-  
-    // Turns counts into rad values and estimates velocity.
-    posRadR = 2 * PI * posR / 3200.0;
-    float velR = (posRadR - prevPosRadR) / (Ts);
-    prev2PosRadR = prevPosRadR;
-    prevPosRadR = posRadR;
-    posRadL = -2 * PI * posL / 3200.0;
-    float velL = (posRadL - prevPosRadL) / (Ts);
-    prev2PosRadL = prevPosRadL;
-    prevPosRadL = posRadL;
-
-    // Call the position controllers for each wheel
-    posDrive(PWM_RIGHT, RIGHT, posTargetR, maxV, posRadR, velR, posIntegralR, velIntegralR);
-    posDrive(PWM_LEFT, LEFT, posTargetL, maxV, posRadL, velL, posIntegralL, velIntegralL);
-
-    while (millis() < last_time_ms + Ts_ms) {}
-    last_time_ms = millis();
-  }
-   
-  return;
-}
-
-void move(float moveDistanceIn) {
-  // Zero the encoders so the drive starts from 0
-  posR = 0;
-  posL = 0;
-
-  float prev2PosRadR, prevPosRadR, posRadR;
-  float prev2PosRadL, prevPosRadL, posRadL;
-  prev2PosRadR = prevPosRadR = posRadR = 0;
-  prev2PosRadL = prevPosRadL = posRadL = 0;
-  posIntegralR = posIntegralL = 0;
-  velIntegralR = velIntegralL = 0;
-
-  // Set the drive targets
-  posTargetR = moveDistanceIn * radPerIn;
-  posTargetL = moveDistanceIn * radPerIn;
-
-  // Restart the timer so the stop time counts from the start of the drive
-  start_time_ms = millis();
-  float tolerance = 0.03;
-  float maxV = 3;
-  while (abs(posRadR - posTargetR) > tolerance ||
-        abs(prevPosRadR - posTargetR) > tolerance ||
-        abs(prev2PosRadR - posTargetR) > tolerance ||
-        abs(posRadL - posTargetL) > tolerance ||
-        abs(prevPosRadL - posTargetL) > tolerance ||
-        abs(prev2PosRadL - posTargetL) > tolerance) {
-          
-    Serial.println("moving");
-    // Find the time in seconds since last loop
-    float t = (last_time_ms - start_time_ms) / 1000.0;
-  
-    // Turns counts into rad values and estimates velocity.
-    posRadR = 2 * PI * posR / 3200.0;
-    float velR = (posRadR - prev2PosRadR) / (2*Ts);
-    prev2PosRadR = prevPosRadR;
-    prevPosRadR = posRadR;
-
-    posRadL = -2 * PI * posL / 3200.0;
-    float velL = (posRadL - prev2PosRadL) / (2*Ts);
-    prev2PosRadL = prevPosRadL;
-    prevPosRadL = posRadL;
-
-    float correctedR, correctedL;
-    // Call the position controllers for each wheel
- 
-
-syncDrive(posRadR, posRadL, posTargetR, posTargetL, correctedR, correctedL);
-
-posDrive(PWM_RIGHT, RIGHT, correctedR, maxV, posRadR, velR, posIntegralR, velIntegralR);
-posDrive(PWM_LEFT, LEFT, correctedL, maxV, posRadL, velL, posIntegralL, velIntegralL);
-
-    // Prints statements for debugging
-    Serial.print(t);
-    Serial.print(", ");
-    Serial.print(posR);
-    Serial.print(", ");
-    Serial.println(posL);
-    while (millis() < last_time_ms + Ts_ms) {}
-    last_time_ms = millis();
-  }
-
-  return;
-}
-
-
 void loop() {
   // Sets the target rotations in radians based on the bits recieved
-  delay(5000);
-  move(60);
-  delay(500);
-  turn(90);
-  delay(500);
-  move(60);
-  delay(500);
-  turn(90);
-  delay(500);
-  move(60);
-  delay(500);
-  turn(90);
-  delay(500);
-  move(60);
-  delay(500);
-  turn(90);
+  delay(8000);
+  turn(1080,2.5);
+  move(180,6);
+
 
 
 
