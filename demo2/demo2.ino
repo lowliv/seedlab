@@ -226,8 +226,8 @@ void turn(float turnDegrees, float baseMaxV) {
   velIntegralR = velIntegralL = 0;
 
   //set clockwise/counterclockwise
-  posTargetL =  turnDegrees * radPerDeg;
   posTargetR = -turnDegrees * radPerDeg;
+  posTargetL =  turnDegrees * radPerDeg;
 
   // Restart the timer so the stop time counts from the start of the drive
   start_time_ms = last_time_ms = millis();
@@ -265,15 +265,8 @@ void turn(float turnDegrees, float baseMaxV) {
       interrupts();
 
       if (cmd.mode == 0) {
-        posTargetR = -(cmd.angle  * radPerDeg) - (velR * delay_ms / 1000);
-        posTargetL =  (cmd.angle  * radPerDeg) - (velR * delay_ms / 1000);
-
-        posR = 0;
-        posL = 0;
-        prev2PosRadR = prevPosRadR = posRadR = 0;
-        prev2PosRadL = prevPosRadL = posRadL = 0;
-        posIntegralR = posIntegralL = 0;
-        velIntegralR = velIntegralL = 0;
+        posTargetR = (cmd.angle  * radPerDeg) - (velR * delay_ms / 1000);
+        posTargetL = -(cmd.angle  * radPerDeg) - (velL * delay_ms / 1000);
 
         Serial.print("cmd.angle:" );
         Serial.print(cmd.angle);
@@ -363,11 +356,7 @@ void move(float moveDistanceIn, float baseMaxV) {
         Serial.print("cmd.angle:" );
         Serial.print(cmd.angle);
         Serial.print(", cmd.distance:" );
-        Serial.print(cmd.distance);
-        Serial.print(", posTargetR:" );
-        Serial.print(posTargetR);
-        Serial.print(", posTargetL:" );
-        Serial.println(posTargetL);
+        Serial.println(cmd.distance);
 
       } else {
         Timer1.pwm(PWM_RIGHT, (0));
