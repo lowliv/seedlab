@@ -213,6 +213,7 @@ try:
             aruco.drawDetectedMarkers(frame, corners, ids)
 
             if dist < 1.5:
+                send_arduino(3, 0, 0)
                 break
 
         # send data to lcd
@@ -230,7 +231,6 @@ try:
 
     while True:
         print("Close enough")
-        send_arduino(3, 0, 0)
         xA, yA, wA, hA = cv2.boundingRect(corners[0].reshape(4, 2))
         y1 = yA + hA // 4
         y2 = yA + 3 * hA // 4
