@@ -441,7 +441,7 @@ void loop() {
       newCmd = false;
       Serial.print("cmd.angle:" );
       Serial.println(cmd.angle);
-      turn(-1 * cmd.angle, 2.5);
+      turn(-1 * cmd.angle+2, 2.5);
     }
 
     if (cmd.mode == 1) {
@@ -457,7 +457,7 @@ void loop() {
     if (cmd.mode == 2) {
       Serial.println("2");
       newCmd = false;
-      turn(360, 0.5);
+      turn(720, 1);
       //while (newCmd == false) {
       //  turn(45, 2.5);
       //}
